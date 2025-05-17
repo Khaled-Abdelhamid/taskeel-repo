@@ -1,7 +1,7 @@
 import streamlit as st
 import requests
-import json
-from ui.text_preprocessor import split_and_chunk_text, process_and_join_chunks
+from stqdm import stqdm
+from ui.text_preprocessor import split_and_chunk_text
 
 st.set_page_config(page_title="Tashkeel Web UI", page_icon="🔤", layout="wide")
 
@@ -94,50 +94,60 @@ if st.button("Add Tashkeel"):
                     )
 
                 # Handle empty text or single empty chunk
-                if not text_chunks or (len(text_chunks) == 1 and not text_chunks[0].strip()):
+                if not text_chunks or (
+                    len(text_chunks) == 1 and not text_chunks[0].strip()
+                ):
                     full_result = ""
                 else:
                     # Filter out empty chunks and process the non-empty ones in batch
-                    non_empty_chunks = [chunk for chunk in text_chunks if chunk.strip()]
+                    non_empty_chunks = []
+                    chunk_indices = (
+                        []
+                    )  # To track the original position of non-empty chunks
+
+                    for i, chunk in enumerate(text_chunks):
+                        if chunk.strip():
+                            non_empty_chunks.append(chunk)
+                            chunk_indices.append(i)
+
                     empty_chunks_map = [not chunk.strip() for chunk in text_chunks]
-                    
-                    # Show progress bar if we have multiple chunks
-                    if len(text_chunks) > 1:
-                        progress_bar = st.progress(0.0)
-                    
+
                     # Use batch processing for the non-empty chunks
                     if non_empty_chunks:
-                        response = requests.post(
-                            f"{api_url}/batch-tashkeel",
-                            json={
-                                "texts": non_empty_chunks,
-                                "model_type": selected_model,
-                                "clean_text": clean_text,
-                            },
-                        )
-                        
-                        if response.status_code == 200:
-                            results = response.json()["tashkeels"]
-                            
-                            # Update progress bar
-                            if len(text_chunks) > 1:
-                                progress_bar.progress(1.0)
-                            
-                            # Reconstruct full result with empty chunks as newlines
-                            all_chunks_results = []
-                            result_index = 0
-                            
-                            for is_empty in empty_chunks_map:
-                                if is_empty:
-                                    all_chunks_results.append("\n")  # Empty chunk becomes a newline
-                                else:
-                                    all_chunks_results.append(results[result_index])
-                                    result_index += 1
-                                    
-                            # Combine all processed chunks
-                            full_result = "".join(all_chunks_results)
-                        else:
-                            raise Exception(f"API Error: {response.text}")
+                        with st.spinner(
+                            f"Processing {len(non_empty_chunks)} text chunks..."
+                        ):
+                            response = requests.post(
+                                f"{api_url}/batch-tashkeel",
+                                json={
+                                    "texts": non_empty_chunks,
+                                    "model_type": selected_model,
+                                    "clean_text": clean_text,
+                                },
+                            )
+
+                            if response.status_code == 200:
+                                results = response.json()["tashkeels"]
+
+                                # Reconstruct full result with empty chunks as newlines
+                                # and preserve original line breaks from the chunks
+                                all_chunks_results = [""] * len(text_chunks)
+
+                                # Place results back in their original positions
+                                for i, result_idx in enumerate(chunk_indices):
+                                    all_chunks_results[result_idx] = results[i]
+
+                                # Handle empty chunks
+                                for i, is_empty in enumerate(empty_chunks_map):
+                                    if is_empty:
+                                        all_chunks_results[i] = (
+                                            "\n"  # Empty chunk becomes a newline
+                                        )
+
+                                # Combine all processed chunks
+                                full_result = "".join(all_chunks_results)
+                            else:
+                                raise Exception(f"API Error: {response.text}")
                     else:
                         full_result = ""  # All chunks were empty
 
@@ -152,120 +162,3 @@ if st.button("Add Tashkeel"):
                 )
             except Exception as e:
                 st.error(f"❌ Error: {str(e)}")
-
-# Advanced section - Batch Processing
-with st.expander("Batch Processing"):
-    st.write("Process multiple texts at once")
-
-    # Text area for batch input (one text per line)
-    batch_text = st.text_area(
-        "Input multiple texts (one per line)",
-        height=150,
-        placeholder="Text 1\nText 2\nText 3",
-    )
-
-    if st.button("Process Batch"):
-        if not batch_text:
-            st.warning("Please enter some texts first.")
-        else:
-            # Split by lines and remove empty lines
-            texts = [t.strip() for t in batch_text.split("\n") if t.strip()]
-
-            if not texts:
-                st.warning("No valid texts found.")
-                st.stop()
-
-            with st.spinner(f"Processing {len(texts)} texts..."):
-                try:
-                    # Process each text separately, with chunking for long texts
-                    all_results = []
-                    progress_bar = st.progress(0.0)
-
-                    for i, text in enumerate(texts):
-                        # Check if text needs to be chunked
-                        text_chunks = split_and_chunk_text(
-                            text, max_chunk_size=MAX_CHUNK_SIZE
-                        )
-
-                        # Process all chunks for this text
-                        processed_chunks = []
-                        for chunk in text_chunks:
-                            if not chunk.strip():
-                                processed_chunks.append("")
-                                continue
-
-                            chunk_response = requests.post(
-                                f"{api_url}/tashkeel",
-                                json={
-                                    "text": chunk,
-                                    "model_type": selected_model,
-                                    "clean_text": clean_text,
-                                },
-                            )
-
-                            if chunk_response.status_code == 200:
-                                processed_chunks.append(
-                                    chunk_response.json()["tashkeel"]
-                                )
-                            else:
-                                raise Exception(
-                                    f"API Error on text {i+1}: {chunk_response.text}"
-                                )
-
-                        # Combine chunks for this text
-                        full_result = "".join(processed_chunks)
-                        all_results.append(full_result)
-
-                        # Update progress
-                        progress_bar.progress((i + 1) / len(texts))
-
-                    st.success(f"✅ Successfully processed {len(texts)} texts!")
-
-                    # Create a table of results
-                    result_data = [
-                        {"Original": orig, "Diacritized": diact}
-                        for orig, diact in zip(texts, all_results)
-                    ]
-
-                    st.subheader("Results")
-                    st.table(result_data)
-                except Exception as e:
-                    st.error(f"❌ Error: {str(e)}")
-
-# API Documentation
-with st.expander("API Documentation"):
-    st.write("### API Endpoints")
-    st.code(
-        """
-# Get API status
-GET /
-
-# Add diacritics to a single text
-POST /tashkeel
-{
-  "text": "النص العربي بدون تشكيل",
-  "model_type": "ed",  # or "eo"
-  "clean_text": true
-}
-
-# Add diacritics to multiple texts
-POST /batch-tashkeel
-{
-  "texts": ["النص الأول", "النص الثاني"],
-  "model_type": "ed",  # or "eo"
-  "clean_text": true
-}
-    """
-    )
-
-    st.write("### Text Size Limitations")
-    st.info(
-        """
-        The neural models have a maximum input size limit of 1024 tokens. 
-        
-        For large texts:
-        - This UI automatically splits text into appropriate chunks
-        - When using the API directly, consider splitting long texts into smaller segments (900 characters or less is recommended)
-        - Use the batch endpoint for processing multiple texts efficiently
-        """
-    )
