@@ -27,4 +27,4 @@ dependencies = [
 
 [tool.setuptools]
 package-dir = { "" = "." }
-packages = ["api", "catt", "models"]
+packages = ["ui", "api", "catt", "models"]
