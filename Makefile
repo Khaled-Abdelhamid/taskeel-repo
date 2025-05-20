@@ -1,4 +1,4 @@
-.PHONY: help server ui clean clean-pkg all
+.PHONY: help server ui clean clean-pkg all docker-build docker-up docker-down
 
 # Default target
 help:
@@ -6,6 +6,9 @@ help:
 	@echo "  make server         - Run the FastAPI server"
 	@echo "  make ui             - Run the ui frontend"
 	@echo "  make all            - Run both server and ui"
+	@echo "  make docker-build   - Build Docker containers"
+	@echo "  make docker-up      - Start Docker containers"
+	@echo "  make docker-down    - Stop Docker containers"
 	@echo "  make clean          - Run all clean commands"
 	@echo "  make clean-pkg      - Clean Python package build artifacts"
 	@echo "  make clean-pyc      - Remove Python file artifacts"
@@ -18,6 +21,19 @@ server:
 ui:
 	@echo "Starting ui frontend..."
 	./start_web_ui.sh
+
+# Docker commands
+docker-build:
+	@echo "Building Docker containers..."
+	docker-compose build
+
+docker-up:
+	@echo "Starting Docker containers..."
+	docker-compose up
+
+docker-down:
+	@echo "Stopping Docker containers..."
+	docker-compose down
 
 clean-pkg:
 	@echo "Cleaning Python package build artifacts..."
@@ -52,4 +68,4 @@ all:
 	@echo "Starting both server and UI..."
 	./start_api.sh & 
 	sleep 5
-	./.start_web_ui.sh
+	./start_web_ui.sh
